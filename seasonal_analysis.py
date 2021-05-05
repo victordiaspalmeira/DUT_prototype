@@ -41,7 +41,7 @@ def clear_dataset(df):
 
 def prepare_dataset(df):
     #sampling
-    sampling = '3Min'
+    sampling = '10Min'
     df = df.resample(sampling).mean()
 
     cols = df.columns
@@ -49,7 +49,7 @@ def prepare_dataset(df):
     #criando indexes faltantes
     start_date = df.index[0]
     end_date = df.index[-1]
-    idx = pd.date_range(start=pd.Timestamp(start_date), end=pd.Timestamp(end_date), freq='5Min')
+    idx = pd.date_range(start=pd.Timestamp(start_date), end=pd.Timestamp(end_date), freq='10Min')
     df = df.reindex(idx)
 
     #imputação
@@ -59,7 +59,7 @@ def prepare_dataset(df):
     impute_data.index = df.index
 
     #smoothing
-    impute_data['Temperature'] = impute_data['Temperature'].rolling(10).sum() #moving average
+    impute_data['Temperature'] = impute_data['Temperature'].rolling(20).sum() #moving average
     impute_data['Temperature'] = preprocessing.minmax_scale(impute_data['Temperature'])
     return impute_data
 
@@ -85,15 +85,13 @@ if __name__ == "__main__":
     df = clear_dataset(df)
     df = prepare_dataset(df)
     df.dropna(inplace=True)
-    #df = df['2021-03-02':'2021-03-12']
+    df = df['2021-03-02':'2021-03-12']
 
-    print(df.head())
-
-    df_decomposed = seasonal_decompose(df.values, period=24*12)
+    df_decomposed = seasonal_decompose(df.values, period=24*6, model='additive')
     combine_seasonal_cols(df, df_decomposed)
 
     slope = pd.Series(np.gradient(df['trend'].values), df.index, name='slope')
-    df['slope'] = 100*slope
+    df['slope'] = 10*slope
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df.index, y=df.trend, mode='lines', name='Trend'))
@@ -101,7 +99,12 @@ if __name__ == "__main__":
     fig.add_trace(go.Scatter(x=df.index, y=df.seasonal, mode='lines', name='Seasonality'))
     fig.add_trace(go.Scatter(x=df.index, y=df.residual, mode='lines', name='Residual'))
     fig.add_trace(go.Scatter(x=df.index, y=df.observed, mode='lines', name='Observed'))
+    fig.add_trace(go.Scatter(x=df.index, y=len(df.index)*[0.27], mode='lines', name='Limit'))
     fig.update_layout(showlegend=True)
     fig.show(title='dut dado decomposto')
     fig = None
+    print(df['trend'].mean())
+    import plotly.express as px
+    fig = px.histogram(df, x="trend")
+    fig.show(title='histograma de temps')
 
