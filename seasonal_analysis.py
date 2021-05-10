@@ -13,7 +13,6 @@ import plotly.graph_objects as go
 
 from statsmodels.tsa.seasonal import seasonal_decompose
 
-
 #constantes
 np.random.seed(2021)
 
@@ -75,6 +74,8 @@ def combine_seasonal_cols(input_df, seasonal_model_results):
     input_df['residual'] = seasonal_model_results.resid
     input_df['seasonal'] = seasonal_model_results.seasonal
     input_df['trend'] = seasonal_model_results.trend
+
+
 
 if __name__ == "__main__":
     #Criação de dataframe
