@@ -49,11 +49,29 @@ def test_bad_load_dataset():
     with pytest.raises(ValueError):
         dut.load_dataset(start_time, end_time)
 
+    with pytest.raises(ValueError):
+        dut.load_dataset("asfdffd", "sdhgf")
+
+def test_save_dataset():
+    start_time = datetime.datetime(2020, 9, 10)
+    end_time = datetime.datetime(2020, 10, 10)
+    dut = create_default_model(1)
+    dut.load_dataset(start_time=start_time, end_time=end_time)
+    path = dut.save_dataset()
+    assert isinstance(path, str)
+
+def test_bad_save_dataset():
+    dut = create_default_model(1)
+    with pytest.raises(ValueError):
+        dut.save_dataset()
+
 def test_predict():
     dev_id = 'test_id'
-    model_id = 1
     dut = DutModel(dev_id=dev_id)
     dut.load_model(model_id=1)
     dut.load_dataset(start_time='2020-09-10', end_time='2020-10-10')
     failure_data = dut.predict()
     assert isinstance(failure_data, numpy.ndarray)
+
+def test_train():
+    pass
