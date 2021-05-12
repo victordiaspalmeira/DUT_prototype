@@ -117,7 +117,7 @@ def split_window(self, features):
 
 WindowGenerator.split_window = split_window
 
-def plot(self, model=None, plot_col='Temperature', max_subplots=3):
+def plot(self, model=None, title='Plot', plot_col='Temperature', max_subplots=3,):
   inputs, labels = self.example
   plt.figure(figsize=(12, 8))
   plot_col_index = self.column_indices[plot_col]
@@ -147,8 +147,9 @@ def plot(self, model=None, plot_col='Temperature', max_subplots=3):
     if n == 0:
       plt.legend()
 
+  plt.title(title)
   plt.xlabel('Time [h]')
-  plt.savefig('plot.png')
+  plt.savefig('{}_plot.png'.format(title))
 
 WindowGenerator.plot = plot
 
