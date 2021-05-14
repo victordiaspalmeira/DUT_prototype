@@ -18,9 +18,9 @@ np.random.seed(seed)
 tf.random.set_seed(seed)
 N_TRAIN = int(1e4)
 BATCH_SIZE = 64
-MAX_EPOCHS = 250
+MAX_EPOCHS = 2500
 STEPS_PER_EPOCH = N_TRAIN//BATCH_SIZE
-data_steps = 4*6
+data_steps = 24*6
 OUT_STEPS = data_steps
 np.seterr(divide='ignore')
 patience = 50
@@ -39,11 +39,13 @@ class DutModel():
     def save_model(self):
         pass
 
-    def predict(self, input_data: pd.DataFrame):
+    def predict(self, input_data: pd.DataFrame, title='Default'):
         #Carrega scaler
         filename = 'scaler_{}.p'.format(self.dev_id)
         infile = open(filename, 'rb')
         scaler = p.load(infile)
+
+        input_data = (input_data - scaler['mean'])/scaler['std']
 
         #Criar janela para previsão
         window = WindowGenerator(input_width=data_steps,
@@ -55,7 +57,7 @@ class DutModel():
                                 )       
 
         hist = self.model.predict(window.test)
-        window.plot(self.model, title='Prediction')
+        window.plot(self.model, title=title)
         return hist
 
     def train(self, training_data: pd.DataFrame) -> np.double:
@@ -90,15 +92,17 @@ class DutModel():
                                     train_df=train_df, val_df=val_df, test_df=test_df
                                 )       
 
-        #window.plot()
+        window.plot(self.model, title='FIT')
 
         #Modelo
         self.model = tf.keras.Sequential([
             tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64, input_shape=(train_df.shape[0], train_df.shape[1]))),
             #tf.keras.layers.LSTM(64, activation='relu', return_sequences=True),
-            tf.keras.layers.Dropout(0.3),
+            #tf.keras.layers.Dropout(0.3),
             #tf.keras.layers.LSTM(64, activation='relu'),
             #tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(60, activation="relu"),
+            tf.keras.layers.Dense(20, activation="relu"),
             tf.keras.layers.Dense(OUT_STEPS*num_features,
             kernel_initializer=tf.initializers.zeros()),
             tf.keras.layers.Reshape([OUT_STEPS, num_features])
@@ -138,15 +142,17 @@ if __name__ == '__main__':
     dev_id = 'DUT209201107'
 
     df_train = pd.read_csv('DUT209201107_training.csv')
+    #df_train = pd.read_csv('DUT209201120_train.csv')
     df_train = clear_dataset(df_train)
     df_train = prepare_dataset(df_train)
     df_train = df_train['2021-03-03':'2021-03-12']
-
     df_test = pd.read_csv('DUT209201107_maio.csv')
+    #df_test = pd.read_csv('DUT209201120_train.csv')
     df_test = clear_dataset(df_test)
     df_test = prepare_dataset(df_test)
     #print(df_test.columns)
 
     dutModel = DutModel(dev_id=dev_id)
     history_train = dutModel.train(training_data=df_train)
-    history_predict = dutModel.predict(input_data=df_test)
+    history_predict_1 = dutModel.predict(input_data=df_test, title='TEST')
+    history_predict_2 = dutModel.predict(input_data=df_train, title='TRAIN')

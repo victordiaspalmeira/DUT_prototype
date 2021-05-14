@@ -8,12 +8,13 @@ from sklearn.impute import IterativeImputer
 from sklearn.ensemble import ExtraTreesRegressor
 from sklearn.linear_model import BayesianRidge, LogisticRegression, LassoLars
 
-def clear_dataset(df):
+def clear_dataset(df, data_steps=24*6):
     df.index.names = [None]
     df.set_index('timestamp', inplace=True)
     df.index = pd.to_datetime(df.index)
+    df = df.diff(periods=data_steps)
     df = df[~df.index.duplicated()]
-
+    """
     if 'SSD' in df.columns:
         df.drop('SSD', inplace=True, axis=1)
     if 'COP' in df.columns:
@@ -26,6 +27,10 @@ def clear_dataset(df):
         df.drop('Tsc', inplace=True, axis=1)
     if 'dev_id' in df.columns:
         df.drop('dev_id', inplace=True, axis=1)
+    """
+    for col in df.columns:
+      if col != 'Temperature' and col != 'timestamp':
+        df.drop(col, inplace=True, axis=1)
 
     return df
 
@@ -45,7 +50,7 @@ def prepare_dataset(df):
     impute_data.columns = cols
     impute_data.index = df.index
 
-    return impute_data
+    return impute_data.rolling(3).sum()
 
 class WindowGenerator():
   def __init__(self, input_width, label_width, shift,
