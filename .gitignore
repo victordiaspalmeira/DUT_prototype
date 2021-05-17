@@ -131,3 +131,6 @@ dmypy.json
 DUT209201107_20210301T000000_20210325T000000.csv
 workspace.code-workspace
 plot.png
+
+# temp files
+tmp
