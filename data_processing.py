@@ -50,7 +50,7 @@ def prepare_dataset(df):
     impute_data.columns = cols
     impute_data.index = df.index
 
-    return impute_data.rolling(3).sum()
+    return impute_data
 
 class WindowGenerator():
   def __init__(self, input_width, label_width, shift,
