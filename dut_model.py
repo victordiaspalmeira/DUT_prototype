@@ -141,18 +141,22 @@ class DutModel():
 if __name__ == '__main__':
     dev_id = 'DUT209201107'
 
-    df_train = pd.read_csv('DUT209201107_training.csv')
+    #df_train = pd.read_csv('DUT209201107_training.csv')
+
     #df_train = pd.read_csv('DUT209201120_train.csv')
+    df_train = pd.read_csv('DUT209201153_train.csv').rolling(3).mean()
     df_train = clear_dataset(df_train)
     df_train = prepare_dataset(df_train)
-    df_train = df_train['2021-03-03':'2021-03-12']
-    df_test = pd.read_csv('DUT209201107_maio.csv')
+    print(df_train)
+
+    #df_train = df_train['2021-03-03':'2021-03-12']
+    #df_test = pd.read_csv('DUT209201107_maio.csv')
     #df_test = pd.read_csv('DUT209201120_train.csv')
-    df_test = clear_dataset(df_test)
-    df_test = prepare_dataset(df_test)
+    #df_test = clear_dataset(df_test)
+    #df_test = prepare_dataset(df_test)
     #print(df_test.columns)
 
     dutModel = DutModel(dev_id=dev_id)
     history_train = dutModel.train(training_data=df_train)
-    history_predict_1 = dutModel.predict(input_data=df_test, title='TEST')
+    #history_predict_1 = dutModel.predict(input_data=df_test, title='TEST')
     history_predict_2 = dutModel.predict(input_data=df_train, title='TRAIN')
