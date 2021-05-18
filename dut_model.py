@@ -58,6 +58,14 @@ class DutModel:
             os.makedirs(self.model_path)
         if not os.path.exists(self.dataset_path):
             os.makedirs(self.dataset_path)
+        
+        with closing(sql_handler.create_connection()) as db:
+            with closing(db.cursor(buffered=True, dictionary=True)) as cursor:
+                assert isinstance(cursor, MySQLCursorBufferedDict)
+                cursor.execute('select * from duts where dev_id=%s', (self.dev_id,))
+                if len(cursor.fetchall()) == 0:
+                    cursor.execute('insert into duts (dev_id) values (%s)', (self.dev_id,))
+                    db.commit()       
 
     @staticmethod
     def from_sql_db(dev_id: str, model_id: Optional[int] = None):
@@ -70,8 +78,10 @@ class DutModel:
         Returns:
             DutModel: Instantiated DutModel with model already loaded. 
         """
-        sql = 'select * from dutModels inner join dutModelStates on dutModels.model_state == dutModelStates.state_id where state_name=\'Active\' and dev_id=%s'
-        sql += ' and model_id=%s' if model_id is not None else ''
+        if model_id is None:
+            sql = 'select * from duts inner join dutmodels on duts.model_id == dutmodels.ID where duts.dev_id=%s'
+        else:
+            sql = 'select * from dutmodels where dev_id=%s and model_id=%s'
         params = [dev_id] + ([model_id] if model_id is not None else [])
         with closing(sql_handler.create_connection()) as db:
             with closing(db.cursor(buffered=True, dictionary=True)) as cursor:
@@ -258,18 +268,21 @@ class DutModel:
 
 
     def __save_model_to_sql(self, evaluate, start_timestamp, end_timestamp):
-        query = 'insert into dutModels (dev_id, evaluate, train_timestamp, start_timestamp, end_timestamp, model_state) values (%s, %s, %s, %s, %s, (select state_id from dutModelStates where state_name=\'Active\'))'
+        query = 'insert into dutModels (dev_id, evaluate, train_timestamp, start_timestamp, end_timestamp, model_state) values (%s, %s, %s, %s, %s)'
         
         with closing(sql_handler.create_connection()) as db:
             with closing(db.cursor(buffered=True, dictionary=True)) as cursor:
                 assert isinstance(cursor, MySQLCursorBufferedDict)
                 parameters = [self.dev_id, evaluate, datetime.now(), start_timestamp, end_timestamp]
                 cursor.execute(query, parameters)
-                db.commit()
+                
                 query = 'select MAX(ID) from dutModels where dev_id=%s'
                 cursor.execute(query, [self.dev_id])
                 self.model_id = cursor.fetchone()['MAX(ID)']
-                print(self.model_id)
+                
+                cursor.execute('update duts set model_id=%s where dev_id=%s', (self.model_id, self.dev_id))
+                db.commit()
+
 
 
 

@@ -6,7 +6,7 @@ from contextlib import closing
 
 def create_tables():
     tables_sql = [
-        '''CREATE TABLE `duts` (`dev_id` varchar(20) NOT NULL,`model_id` int NOT NULL, PRIMARY KEY (`dev_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci''',
+        '''CREATE TABLE `duts` (`dev_id` varchar(20) NOT NULL, `model_id` int DEFAULT NULL, KEY `model_id` (`model_id`), CONSTRAINT `duts_ibfk_1` FOREIGN KEY (`model_id`) REFERENCES `dutmodels` (`ID`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci''',
         '''CREATE TABLE `dutmodels` (`ID` int NOT NULL AUTO_INCREMENT, `dev_id` varchar(20) DEFAULT NULL, `evaluate` float DEFAULT NULL, `train_timestamp` datetime DEFAULT NULL, `start_timestamp` datetime DEFAULT NULL, `end_timestamp` datetime DEFAULT NULL, PRIMARY KEY (`ID`)) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci''',        
     ]
 
