@@ -268,7 +268,7 @@ class DutModel:
 
 
     def __save_model_to_sql(self, evaluate, start_timestamp, end_timestamp):
-        query = 'insert into dutModels (dev_id, evaluate, train_timestamp, start_timestamp, end_timestamp, model_state) values (%s, %s, %s, %s, %s)'
+        query = 'insert into dutModels (dev_id, evaluate, train_timestamp, start_timestamp, end_timestamp) values (%s, %s, %s, %s, %s)'
         
         with closing(sql_handler.create_connection()) as db:
             with closing(db.cursor(buffered=True, dictionary=True)) as cursor:
