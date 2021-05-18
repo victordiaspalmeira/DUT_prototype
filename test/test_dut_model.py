@@ -78,10 +78,10 @@ def test_predict():
     failure_data = dut.predict()
     assert isinstance(failure_data, numpy.ndarray)
 
-def test_train():
-    dev_id = 'DUT209201107'
-    dut = DutModel(dev_id)
-    import query_intel
+# def test_train():
+#     dev_id = 'DUT209201107'
+#     dut = DutModel(dev_id)
+#     import query_intel
 
-    dut.train(query_intel.dut_query(dev_id, datetime.datetime(2021, 2, 1), datetime.datetime(2021, 2, 20)))
-    assert dut.model is not None
+#     dut.train(query_intel.dut_query(dev_id, datetime.datetime(2021, 2, 1), datetime.datetime(2021, 2, 20)))
+#     assert dut.model is not None
