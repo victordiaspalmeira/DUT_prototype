@@ -11,7 +11,7 @@ def create_tables():
     ]
 
     with closing(sql_handler.create_connection()) as db:
-        with db.cursor(buffered=True, dictionary=True) as cursor:
+        with closing(db.cursor(buffered=True, dictionary=True)) as cursor:
             assert isinstance(cursor, MySQLCursorBufferedDict)
             map(cursor.execute, tables_sql)
 
