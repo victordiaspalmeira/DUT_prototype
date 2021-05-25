@@ -37,6 +37,8 @@ def dynamodb_query(dac_id : str, start_time : Union[str, datetime.datetime], end
 def dut_query(dev_id : str, start_time : datetime.datetime, end_time : datetime.datetime, save=False) -> pd.DataFrame:
     associated_dacs = sorted(api_conn.get_associated_dacs(dev_id)['list'], key=lambda x : x['DAC_ID'])
     dut_data = dynamodb_query(dev_id, start_time, end_time, attributes_to_get=['timestamp', 'Temperature'])
+    if dut_data.empty:
+        dut_data = pd.DataFrame([], columns=['timestamp', 'Temperature'])
     dut_data['timestamp'] =  pd.to_datetime(dut_data['timestamp'])             
     dut_data.drop(index = dut_data.loc[dut_data['timestamp'] < start_time].index,inplace = True)
     dut_data.set_index('timestamp',inplace = True)

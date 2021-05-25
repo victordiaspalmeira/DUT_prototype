@@ -134,3 +134,6 @@ plot.png
 
 # temp files
 tmp
+models
+datasets
+*.png

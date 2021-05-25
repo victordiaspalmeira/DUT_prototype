@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
+from socket import create_connection
 from query_intel import dut_query
 from typing import Optional
 from mysql.connector.cursor import CursorBase, MySQLCursorBufferedDict
@@ -9,6 +10,8 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 from matplotlib import pyplot as plt
+###
+from seasonal_analysis import prepare_dataset
 
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
@@ -43,13 +46,26 @@ print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
 class DutModel:
     model_bucket = 'intel-model-bucket'
-
+    sampling_rate = timedelta(minutes=10)
     def __init__(self, dev_id: str):
         self.model: Optional[tf.keras.Sequential] = None
         self.scaler = None
         self.model_id: Optional[int] = None
         self.dev_id = dev_id
         self.dataset: Optional[pd.DataFrame] = None
+
+        if not os.path.exists(self.model_path):
+            os.makedirs(self.model_path)
+        if not os.path.exists(self.dataset_path):
+            os.makedirs(self.dataset_path)
+        
+        with closing(sql_handler.create_connection()) as db:
+            with closing(db.cursor(buffered=True, dictionary=True)) as cursor:
+                assert isinstance(cursor, MySQLCursorBufferedDict)
+                cursor.execute('select * from duts where dev_id=%s', (self.dev_id,))
+                if len(cursor.fetchall()) == 0:
+                    cursor.execute('insert into duts (dev_id) values (%s)', (self.dev_id,))
+                    db.commit()       
 
     @staticmethod
     def from_sql_db(dev_id: str, model_id: Optional[int] = None):
@@ -62,8 +78,10 @@ class DutModel:
         Returns:
             DutModel: Instantiated DutModel with model already loaded. 
         """
-        sql = 'select * from dutModels inner join dutModelStates on dutModels.model_state == dutModelStates.state_id where state_name=\'Active\' and dev_id=%s'
-        sql += ' and model_id=%s' if model_id is not None else ''
+        if model_id is None:
+            sql = 'select * from duts inner join dutmodels on duts.model_id == dutmodels.ID where duts.dev_id=%s'
+        else:
+            sql = 'select * from dutmodels where dev_id=%s and model_id=%s'
         params = [dev_id] + ([model_id] if model_id is not None else [])
         with closing(sql_handler.create_connection()) as db:
             with closing(db.cursor(buffered=True, dictionary=True)) as cursor:
@@ -83,7 +101,11 @@ class DutModel:
     def dataset_path(self):
         return f"./datasets/{self.dev_id}"
 
-    def load_model(self, model_id: int, local_model=False):
+    @property
+    def scaler_name(self):
+        return f"scaler_{self.dev_id}.p"
+
+    def load_model(self, model_id: int):
         """Loads a model from s3.
 
         Args:
@@ -111,7 +133,7 @@ class DutModel:
 
         self.model = tf.keras.models.load_model(self.model_path)
 
-        with open(f'{self.model_path}/{self.dev_id}_scaler.p', "rb") as scaler:
+        with open(self.model_path + '/' + self.scaler_name, "rb") as scaler:
             self.scaler = pickle.load(scaler)
 
     def save_model(self):
@@ -121,7 +143,7 @@ class DutModel:
         self.model.save(self.model_path)
         filepath = f'./tmp/{self.dev_id}.zip'
 
-        with open(self.model_path + f"/{self.dev_id}_scaler.p", 'wb') as f:
+        with open(self.model_path + '/' + self.scaler_name, 'wb') as f:
             pickle.dump(self.scaler, f)
 
         try:
@@ -145,7 +167,7 @@ class DutModel:
 
     def predict(self, input_data: pd.DataFrame, title='Default'):
         # Carrega scaler
-        filename = 'scaler_{}.p'.format(self.dev_id)
+        filename = self.model_path + '/' + self.scaler_name
         infile = open(filename, 'rb')
         scaler = pickle.load(infile)
 
@@ -194,7 +216,7 @@ class DutModel:
         self.scaler['std'] = train_df.std()
 
         # Salvando em pickle (provisório)
-        filename = 'scaler_{}.p'.format(self.dev_id)
+        filename = self.model_path + '/' + self.scaler_name
         outfile = open(filename, 'wb')
         pickle.dump(self.scaler, outfile)
         outfile.close()
@@ -249,13 +271,36 @@ class DutModel:
                                  validation_steps=800,
                                  callbacks=[early_stopping])
 
-        evaluate = self.model.evaluate(window.test)
+        evaluate = 0.1 #colocar evaluate
+        
 
-        return evaluate
+        self.__save_model_to_sql(evaluate, training_data.index[0].to_pydatetime(), training_data.index[-1].to_pydatetime())
 
-    def save_dataset(self, path : Optional[str] = None) -> str:
+        return history
+
+
+    def __save_model_to_sql(self, evaluate, start_timestamp, end_timestamp):
+        query = 'insert into dutModels (dev_id, evaluate, train_timestamp, start_timestamp, end_timestamp) values (%s, %s, %s, %s, %s)'
+        
+        with closing(sql_handler.create_connection()) as db:
+            with closing(db.cursor(buffered=True, dictionary=True)) as cursor:
+                assert isinstance(cursor, MySQLCursorBufferedDict)
+                parameters = [self.dev_id, evaluate, datetime.now(), start_timestamp, end_timestamp]
+                cursor.execute(query, parameters)
+                
+                query = 'select MAX(ID) from dutModels where dev_id=%s'
+                cursor.execute(query, [self.dev_id])
+                self.model_id = cursor.fetchone()['MAX(ID)']
+                
+                cursor.execute('update duts set model_id=%s where dev_id=%s', (self.model_id, self.dev_id))
+                db.commit()
+
+
+
+
+    def save_dataset(self, path: Optional[str] = None) -> str:
         """Saves a dataset in the path passed to it as a pickled object.
-
+ 
         Args:
             path (Optional[str], optional): Path as string. Defaults to None.
 
@@ -271,7 +316,7 @@ class DutModel:
         self.dataset.to_pickle(path)
         return path
 
-    def load_dataset(self, start_time: datetime, end_time: datetime):
+    def load_dataset(self, start_time: datetime, end_time: datetime, path=None):
         """Loads a dataset from start_time to end_time, first looking at the default pickled path and queries the rest from DynamoDB.
 
         Args:
@@ -282,34 +327,36 @@ class DutModel:
             ValueError: If parameters are not datetime.datetime
             ValueError: If end_time < start_time
         """
+
         if not isinstance(start_time, datetime) or not isinstance(end_time, datetime):
             raise ValueError("start_time and end_time should be datetimes")
 
         if end_time < start_time:
             raise ValueError("end_time occurs before start_time")
 
+        path = path or f"{self.dataset_path}/curr_dataset.p"
+
         try:
-            self.dataset: pd.DataFrame = pd.read_pickle(
-                f"{self.dataset_path}/curr_dataset.p")
+            self.dataset: pd.DataFrame = pd.read_pickle(path)
             self.dataset.drop(
                 index=self.dataset.loc[self.dataset.index < start_time], inplace=True)
             self.dataset.drop(
                 index=self.dataset.loc[self.dataset.index > end_time], inplace=True)
             self.dataset.sort_index(inplace=True)
-        except FileNotFoundError:
-            self.dataset = dut_query(self.dev_id, start_time, end_time)
+        except Exception as e:
+            self.dataset : pd.DataFrame = dut_query(self.dev_id, start_time, end_time)
+            self.dataset = prepare_dataset(self.dataset)
             return
 
-        
-        #Assumindo que o dataset é um bloco único (em acordo com nossas práticas até agora), 
-        #há 3 hipóteses: dataset já existente compreende parte (até totalidade) do novo período a partir do início, a partir do fim e dividindo no meio
+        # Assumindo que o dataset é um bloco único (em acordo com nossas práticas até agora),
+        # há 3 hipóteses: dataset já existente compreende parte (até totalidade) do novo período a partir do início, a partir do fim e dividindo no meio
 
-        #Ou seja, sendo '+' dados existentes localmente e '=' dados não existentes:
+        # Ou seja, sendo '+' dados existentes localmente e '=' dados não existentes:
         # +++==== Caso 1 - start_time = fim do dataframe, end_time=end_time
         # ==+++== Caso 2 - 2 queries, start_time1 = start_time, end_time1=inicio do dataframe e start_time2=fim do dataframe, end_time2=end_time
         # ====+++ Caso 3 - start_time=start_time, end_time=inicio do dataframe
 
-        #No caso +++++++, a diferença entre start_time e end_time será 0
+        # No caso +++++++, a diferença entre start_time e end_time será 0
 
         if start_time == self.dataset.index[0]:  # caso 1
             start_time = self.dataset.index[-1]
@@ -324,13 +371,20 @@ class DutModel:
             start_time2, end_time2 = self.dataset.index[-1], end_time
             self.dataset = pd.concat([dut_query(self.dev_id, start_time1, end_time1), self.dataset, dut_query(
                 self.dev_id, start_time2, end_time2)])
-
+        
+        self.dataset = prepare_dataset(self.dataset)
+        print(self.dataset)
 
 if __name__ == '__main__':
     dev_id = 'DUT209201107'
 
+    dut = DutModel(dev_id)
+    dut.load_dataset(datetime(2021, 3, 1), datetime(2021, 3, 5))
+    dut.save_dataset()
+    dut.train(dut.dataset)
+    dut.save_model()
+    exit()
     df_train = pd.read_csv('DUT209201107_training.csv')
-
     #df_train = pd.read_csv('DUT209201120_train.csv')
     #df_train = pd.read_csv('DUT209201153_train.csv')
 
