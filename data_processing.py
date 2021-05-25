@@ -8,6 +8,9 @@ from sklearn.impute import IterativeImputer
 from sklearn.ensemble import ExtraTreesRegressor
 from sklearn.linear_model import BayesianRidge, LogisticRegression, LassoLars
 
+import plotly.express as px
+import plotly.graph_objects as go
+
 def clear_dataset(df, data_steps=24*6):
     df.index.names = [None]
     df.set_index('timestamp', inplace=True)
@@ -35,22 +38,22 @@ def clear_dataset(df, data_steps=24*6):
     return df
 
 def prepare_dataset(df):
-    sampling = '10Min'
-    df = df.resample(sampling).max()
-    start_date = df.index[0]
-    end_date = df.index[-1]
+  sampling = '10Min'
+  df = df.resample(sampling).max()
+  start_date = df.index[0]
+  end_date = df.index[-1]
 
-    cols = df.columns
+  cols = df.columns
 
-    idx = pd.date_range(start=pd.Timestamp(start_date), end=pd.Timestamp(end_date), freq='10Min')
-    df = df.reindex(idx)
+  idx = pd.date_range(start=pd.Timestamp(start_date), end=pd.Timestamp(end_date), freq='10Min')
+  df = df.reindex(idx)
 
-    imputer = IterativeImputer(LogisticRegression())
-    impute_data = pd.DataFrame(imputer.fit_transform(df))
-    impute_data.columns = cols
-    impute_data.index = df.index
+  imputer = IterativeImputer(LogisticRegression())
+  impute_data = pd.DataFrame(imputer.fit_transform(df))
+  impute_data.columns = cols
+  impute_data.index = df.index
 
-    return impute_data
+  return impute_data
 
 class WindowGenerator():
   def __init__(self, input_width, label_width, shift,
@@ -93,6 +96,7 @@ class WindowGenerator():
   def split_window(self, features):
     inputs = features[:, self.input_slice, :]
     labels = features[:, self.labels_slice, :]
+
     if self.label_columns is not None:
       labels = tf.stack(
           [labels[:, :, self.column_indices[name]] for name in self.label_columns],
@@ -105,33 +109,73 @@ class WindowGenerator():
 
     return inputs, labels
 
-def split_window(self, features):
-    inputs = features[:, self.input_slice, :]
-    labels = features[:, self.labels_slice, :]
-    if self.label_columns is not None:
-      labels = tf.stack(
-          [labels[:, :, self.column_indices[name]] for name in self.label_columns],
-          axis=-1)
+  def find_anomalies(self, model=None, title='Plot', plot_col='Temperature'):
+    print('Verificando anomalias...')
+    inputs, labels = self.example
+    plt.figure(figsize=(36, 24))
+    plot_col_index = self.column_indices[plot_col]
 
-    # Slicing doesn't preserve static shape information, so set the shapes
-    # manually. This way the `tf.data.Datasets` are easier to inspect.
-    inputs.set_shape([None, self.input_width, None])
-    labels.set_shape([None, self.label_width, None])
+    output_dict = dict()
+    output_dict['Previsão'] = list()
+    output_dict['Real'] = list()
+    output_dict['Labels'] = list()
 
-    return inputs, labels
+    max_n = len(inputs) #min(max_subplots, len(inputs))
 
-WindowGenerator.split_window = split_window
+    anomaly_count = 0
+
+    for n in range(max_n):
+      inp = inputs[n, :, plot_col_index]
+      output_dict['Real'].append(inp)
+
+      if self.label_columns:
+        label_col_index = self.label_columns_indices.get(plot_col, None)
+      else:
+        label_col_index = plot_col_index
+
+      if label_col_index is None:
+        continue
+
+      lab = labels[n, :, label_col_index]
+      output_dict['Labels'].append(lab)
+      if model is not None:
+        predictions = model(inputs)
+        pred = predictions[n, :, label_col_index]
+        output_dict['Previsão'].append(pred)
+
+      real = np.roll(output_dict['Real'][n], 3)
+      labels = np.roll(output_dict['Labels'][n], 3)
+      preds = np.roll(output_dict['Previsão'][n], 3)
+
+      abs_error = abs(labels - preds)
+      anomalies = abs_error > 2*np.std(abs_error)
+      anomaly_count += anomalies.sum()
+      
+      if n == 0:
+        pass
+
+    print("Possíveis anomalias:", anomaly_count)
+    return anomaly_count
 
 def plot(self, model=None, title='Plot', plot_col='Temperature', max_subplots=3,):
   inputs, labels = self.example
-  plt.figure(figsize=(12, 8))
+  plt.figure(figsize=(36, 24))
   plot_col_index = self.column_indices[plot_col]
+
+  output_dict = dict()
+  output_dict['Previsão'] = list()
+  output_dict['Real'] = list()
+  output_dict['Labels'] = list()
+
   max_n = min(max_subplots, len(inputs))
   for n in range(max_n):
     plt.subplot(max_n, 1, n+1)
     plt.ylabel(f'{plot_col} [normed]')
-    plt.plot(self.input_indices, inputs[n, :, plot_col_index],
+    inp = inputs[n, :, plot_col_index]
+    plt.plot(self.input_indices, inp,
              label='Inputs', marker='.', zorder=-10)
+
+    output_dict['Real'].append(inp)
 
     if self.label_columns:
       label_col_index = self.label_columns_indices.get(plot_col, None)
@@ -140,20 +184,28 @@ def plot(self, model=None, title='Plot', plot_col='Temperature', max_subplots=3,
 
     if label_col_index is None:
       continue
-
+    lab = labels[n, :, label_col_index]
+    output_dict['Labels'].append(lab)
     plt.scatter(self.label_indices, labels[n, :, label_col_index],
                 edgecolors='k', label='Labels', c='#2ca02c', s=64)
     if model is not None:
       predictions = model(inputs)
-      plt.scatter(self.label_indices, predictions[n, :, label_col_index],
+      pred = predictions[n, :, label_col_index]
+      output_dict['Previsão'].append(pred)
+
+      plt.scatter(self.label_indices, pred,
                   marker='X', edgecolors='k', label='Predictions',
                   c='#ff7f0e', s=64)
+
+      plt.scatter(self.label_indices, abs(np.roll(predictions[n, :, label_col_index], 6) - np.roll(labels[n, :, label_col_index], 6)),
+                  marker='X', edgecolors='k', label='Error',
+                  c='#ff1f0e', s=64)
 
     if n == 0:
       plt.legend()
 
   plt.title(title)
-  plt.xlabel('Time [h]')
+  plt.xlabel('Time [10 Min]')
   plt.savefig('{}_plot.png'.format(title))
 
 WindowGenerator.plot = plot
@@ -168,7 +220,8 @@ def make_dataset(self, data):
       shuffle=True,
       batch_size=32,)
 
-  ds = ds.map(self.split_window)
+  split = self.split_window
+  ds = ds.map(split)
 
   return ds
 
@@ -192,7 +245,7 @@ def example(self):
   result = getattr(self, '_example', None)
   if result is None:
     # No example batch was found, so get one from the `.train` dataset
-    result = next(iter(self.train))
+    result = next(iter(self.test))
     # And cache it for next time
     self._example = result
   return result

@@ -23,7 +23,7 @@ import zipfile
 import pickle
 
 from contextlib import closing
-
+import pickle as p
 
 # constantes
 seed = 2021
@@ -31,12 +31,12 @@ np.random.seed(seed)
 tf.random.set_seed(seed)
 N_TRAIN = int(1e4)
 BATCH_SIZE = 64
-MAX_EPOCHS = 2500
+MAX_EPOCHS = 3000
 STEPS_PER_EPOCH = N_TRAIN//BATCH_SIZE
 data_steps = 24*6
 OUT_STEPS = data_steps
 np.seterr(divide='ignore')
-patience = 50
+patience = 60
 
 print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
@@ -83,7 +83,7 @@ class DutModel:
     def dataset_path(self):
         return f"./datasets/{self.dev_id}"
 
-    def load_model(self, model_id: int):
+    def load_model(self, model_id: int, local_model=False):
         """Loads a model from s3.
 
         Args:
@@ -92,6 +92,11 @@ class DutModel:
         Raises:
             ValueError: On invalid model_id (non integer or nonpositive)
         """
+        if local_model:
+            self.model = tf.keras.models.load_model('model.ts')
+            print(self.model)
+            return 
+
         if not isinstance(model_id, int):
             raise ValueError('Model ID needs to be an integer')
 
@@ -156,8 +161,15 @@ class DutModel:
                                  )
 
         hist = self.model.predict(window.test)
-        window.plot(self.model, title=title)
-        return hist
+
+        filename = 'test_predict_orig_{}.p'.format(self.dev_id)
+        filename_1 = 'test_predict_pred_{}.p'.format(self.dev_id)
+        outfile = open(filename, 'wb')
+        window.find_anomalies(self.model, title=title)
+        output = dict()
+        output['real'] = window.test
+        output['predict'] = np.array(list(hist))
+        return output
 
     def train(self, training_data: pd.DataFrame) -> np.double:
         """Trains a model for a DUT and saves it to the DB.
@@ -180,6 +192,7 @@ class DutModel:
         self.scaler = dict()
         self.scaler['mean'] = train_df.mean()
         self.scaler['std'] = train_df.std()
+
         # Salvando em pickle (provisório)
         filename = 'scaler_{}.p'.format(self.dev_id)
         outfile = open(filename, 'wb')
@@ -197,18 +210,17 @@ class DutModel:
                                  shift=data_steps,
                                  train_df=train_df, val_df=val_df, test_df=test_df
                                  )
-
         window.plot(self.model, title='FIT')
 
         # Modelo
         self.model = tf.keras.Sequential([
             tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(
-                64, input_shape=(train_df.shape[0], train_df.shape[1]))),
+                128, input_shape=(train_df.shape[0], train_df.shape[1]))),
             #tf.keras.layers.LSTM(64, activation='relu', return_sequences=True),
-            # tf.keras.layers.Dropout(0.3),
+            tf.keras.layers.Dropout(0.2),
             #tf.keras.layers.LSTM(64, activation='relu'),
             # tf.keras.layers.Dropout(0.2),
-            tf.keras.layers.Dense(60, activation="relu"),
+            tf.keras.layers.Dense(50, activation="relu"),
             tf.keras.layers.Dense(20, activation="relu"),
             tf.keras.layers.Dense(OUT_STEPS*num_features,
                                   kernel_initializer=tf.initializers.zeros()),
@@ -234,10 +246,12 @@ class DutModel:
 
         history = self.model.fit(window.train, epochs=MAX_EPOCHS,
                                  validation_data=window.val,
-                                 validation_steps=80,
+                                 validation_steps=800,
                                  callbacks=[early_stopping])
 
-        return history
+        evaluate = self.model.evaluate(window.test)
+
+        return evaluate
 
     def save_dataset(self, path : Optional[str] = None) -> str:
         """Saves a dataset in the path passed to it as a pickled object.
@@ -315,22 +329,23 @@ class DutModel:
 if __name__ == '__main__':
     dev_id = 'DUT209201107'
 
-    #df_train = pd.read_csv('DUT209201107_training.csv')
+    df_train = pd.read_csv('DUT209201107_training.csv')
 
     #df_train = pd.read_csv('DUT209201120_train.csv')
-    df_train = pd.read_csv('DUT209201153_train.csv').rolling(3).mean()
+    #df_train = pd.read_csv('DUT209201153_train.csv')
+
     df_train = clear_dataset(df_train)
     df_train = prepare_dataset(df_train)
-    print(df_train)
-
+    
     #df_train = df_train['2021-03-03':'2021-03-12']
-    #df_test = pd.read_csv('DUT209201107_maio.csv')
+    df_test = pd.read_csv('DUT209201107_maio.csv')
     #df_test = pd.read_csv('DUT209201120_train.csv')
-    #df_test = clear_dataset(df_test)
-    #df_test = prepare_dataset(df_test)
+    df_test = clear_dataset(df_test)
+    df_test = prepare_dataset(df_test)
+    df_test = df_test['2021-05-09':'2021-05-10']
     #print(df_test.columns)
 
     dutModel = DutModel(dev_id=dev_id)
     history_train = dutModel.train(training_data=df_train)
     #history_predict_1 = dutModel.predict(input_data=df_test, title='TEST')
-    history_predict_2 = dutModel.predict(input_data=df_train, title='TRAIN')
+    output = dutModel.predict(input_data=df_test, title='Predict_')
